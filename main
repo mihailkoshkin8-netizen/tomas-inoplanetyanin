@@ -1,0 +1,514 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local lp = Players.LocalPlayer
+local playerGui = lp:WaitForChild("PlayerGui")
+
+-- === ОЧИСТКА ПРЕДЫДУЩИХ ЗАПУСКОВ ===
+local genv = (getgenv and getgenv()) or _G
+if genv.__SpeedGuiHandle then
+    pcall(function()
+        if genv.__SpeedGuiHandle.unload then genv.__SpeedGuiHandle.unload() end
+    end)
+    genv.__SpeedGuiHandle = nil
+end
+for _, g in ipairs(playerGui:GetChildren()) do
+    if g.Name == "SpeedGui" then pcall(function() g:Destroy() end) end
+end
+
+-- === СОСТОЯНИЕ ===
+local enabled = false
+local targetSpeed = 60
+local BONUS_CAP = 250
+local BASE_SPEED = 16
+
+local bypassActive = false
+local savedState = {}
+
+-- === GUI ===
+local gui = Instance.new("ScreenGui")
+gui.Name = "SpeedGui"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.Parent = playerGui
+
+local MAIN_W, MAIN_H = 240, 268
+local main = Instance.new("Frame")
+main.Size = UDim2.new(0, MAIN_W, 0, MAIN_H)
+main.Position = UDim2.new(0.5, -MAIN_W / 2, 0.5, -MAIN_H / 2)
+main.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
+main.BorderSizePixel = 0
+main.Parent = gui
+
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 10)
+mainCorner.Parent = main
+
+local mainStroke = Instance.new("UIStroke")
+mainStroke.Color = Color3.fromRGB(40, 40, 46)
+mainStroke.Thickness = 1
+mainStroke.Parent = main
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -90, 0, 22)
+title.Position = UDim2.new(0, 12, 0, 12)
+title.BackgroundTransparency = 1
+title.Text = "MOVEMENT"
+title.Font = Enum.Font.GothamBold
+title.TextSize = 12
+title.TextColor3 = Color3.fromRGB(220, 220, 225)
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = main
+
+local subtitle = Instance.new("TextLabel")
+subtitle.Size = UDim2.new(1, -24, 0, 14)
+subtitle.Position = UDim2.new(0, 12, 0, 30)
+subtitle.BackgroundTransparency = 1
+subtitle.Text = "cframe stepping"
+subtitle.Font = Enum.Font.Gotham
+subtitle.TextSize = 10
+subtitle.TextColor3 = Color3.fromRGB(110, 110, 120)
+subtitle.TextXAlignment = Enum.TextXAlignment.Left
+subtitle.Parent = main
+
+local winControls = Instance.new("Frame")
+winControls.Size = UDim2.new(0, 50, 0, 18)
+winControls.Position = UDim2.new(1, -62, 0, 14)
+winControls.BackgroundTransparency = 1
+winControls.Parent = main
+
+local function makeWinBtn(text, xOff)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(0, 18, 0, 18)
+    b.Position = UDim2.new(0, xOff, 0, 0)
+    b.BackgroundColor3 = Color3.fromRGB(26, 26, 30)
+    b.BorderSizePixel = 0
+    b.Text = text
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 12
+    b.TextColor3 = Color3.fromRGB(190, 190, 200)
+    b.AutoButtonColor = false
+    b.Parent = winControls
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 5)
+    c.Parent = b
+    local s = Instance.new("UIStroke")
+    s.Color = Color3.fromRGB(44, 44, 50)
+    s.Thickness = 1
+    s.Parent = b
+    return b
+end
+
+local minBtnWin = makeWinBtn("—", 0)
+local closeBtnWin = makeWinBtn("✕", 26)
+
+local inputBox = Instance.new("TextBox")
+inputBox.Size = UDim2.new(1, -24, 0, 34)
+inputBox.Position = UDim2.new(0, 12, 0, 54)
+inputBox.BackgroundColor3 = Color3.fromRGB(26, 26, 30)
+inputBox.BorderSizePixel = 0
+inputBox.ClearTextOnFocus = false
+inputBox.Text = "60"
+inputBox.PlaceholderText = "speed"
+inputBox.Font = Enum.Font.Gotham
+inputBox.TextSize = 13
+inputBox.TextColor3 = Color3.fromRGB(230, 230, 235)
+inputBox.PlaceholderColor3 = Color3.fromRGB(100, 100, 110)
+inputBox.TextXAlignment = Enum.TextXAlignment.Left
+inputBox.Parent = main
+
+local inputCorner = Instance.new("UICorner")
+inputCorner.CornerRadius = UDim.new(0, 6)
+inputCorner.Parent = inputBox
+
+local inputStroke = Instance.new("UIStroke")
+inputStroke.Color = Color3.fromRGB(44, 44, 50)
+inputStroke.Thickness = 1
+inputStroke.Parent = inputBox
+
+local inputPad = Instance.new("UIPadding")
+inputPad.PaddingLeft = UDim.new(0, 10)
+inputPad.PaddingRight = UDim.new(0, 10)
+inputPad.Parent = inputBox
+
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Size = UDim2.new(1, -24, 0, 34)
+toggleBtn.Position = UDim2.new(0, 12, 0, 96)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(26, 26, 30)
+toggleBtn.BorderSizePixel = 0
+toggleBtn.Text = "OFF"
+toggleBtn.Font = Enum.Font.GothamMedium
+toggleBtn.TextSize = 13
+toggleBtn.TextColor3 = Color3.fromRGB(200, 200, 210)
+toggleBtn.AutoButtonColor = false
+toggleBtn.Parent = main
+
+local toggleCorner = Instance.new("UICorner")
+toggleCorner.CornerRadius = UDim.new(0, 6)
+toggleCorner.Parent = toggleBtn
+
+local toggleStroke = Instance.new("UIStroke")
+toggleStroke.Color = Color3.fromRGB(44, 44, 50)
+toggleStroke.Thickness = 1
+toggleStroke.Parent = toggleBtn
+
+local divider = Instance.new("Frame")
+divider.Size = UDim2.new(1, -24, 0, 1)
+divider.Position = UDim2.new(0, 12, 0, 144)
+divider.BackgroundColor3 = Color3.fromRGB(38, 38, 44)
+divider.BorderSizePixel = 0
+divider.Parent = main
+
+local sysTitle = Instance.new("TextLabel")
+sysTitle.Size = UDim2.new(1, -24, 0, 20)
+sysTitle.Position = UDim2.new(0, 12, 0, 150)
+sysTitle.BackgroundTransparency = 1
+sysTitle.Text = "SYSTEM"
+sysTitle.Font = Enum.Font.GothamBold
+sysTitle.TextSize = 11
+sysTitle.TextColor3 = Color3.fromRGB(180, 180, 190)
+sysTitle.TextXAlignment = Enum.TextXAlignment.Left
+sysTitle.Parent = main
+
+local bypassBtn = Instance.new("TextButton")
+bypassBtn.Size = UDim2.new(1, -24, 0, 34)
+bypassBtn.Position = UDim2.new(0, 12, 0, 172)
+bypassBtn.BackgroundColor3 = Color3.fromRGB(26, 26, 30)
+bypassBtn.BorderSizePixel = 0
+bypassBtn.Text = "BYPASS AC"
+bypassBtn.Font = Enum.Font.GothamMedium
+bypassBtn.TextSize = 12
+bypassBtn.TextColor3 = Color3.fromRGB(200, 200, 210)
+bypassBtn.AutoButtonColor = false
+bypassBtn.Parent = main
+
+local bypassCorner = Instance.new("UICorner")
+bypassCorner.CornerRadius = UDim.new(0, 6)
+bypassCorner.Parent = bypassBtn
+
+local bypassStroke = Instance.new("UIStroke")
+bypassStroke.Color = Color3.fromRGB(44, 44, 50)
+bypassStroke.Thickness = 1
+bypassStroke.Parent = bypassBtn
+
+-- === ПОДПИСЬ ===
+local signature = Instance.new("TextLabel")
+signature.Size = UDim2.new(1, -24, 0, 20)
+signature.Position = UDim2.new(0, 12, 0, 216)
+signature.BackgroundTransparency = 1
+signature.Text = "tomas inoplanetyanin"
+signature.Font = Enum.Font.GothamBold
+signature.TextSize = 12
+signature.TextColor3 = Color3.fromRGB(240, 180, 90)
+signature.TextXAlignment = Enum.TextXAlignment.Center
+signature.TextYAlignment = Enum.TextYAlignment.Center
+signature.Parent = main
+
+local sigStroke = Instance.new("UIStroke")
+sigStroke.Color = Color3.fromRGB(140, 80, 20)
+sigStroke.Thickness = 1
+sigStroke.Parent = signature
+
+-- === МИНИ-КНОПКА ===
+local miniBtn = Instance.new("TextButton")
+miniBtn.Size = UDim2.new(0, 52, 0, 52)
+miniBtn.Position = main.Position
+miniBtn.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
+miniBtn.BorderSizePixel = 0
+miniBtn.Text = "M"
+miniBtn.Font = Enum.Font.GothamBold
+miniBtn.TextSize = 16
+miniBtn.TextColor3 = Color3.fromRGB(220, 220, 225)
+miniBtn.AutoButtonColor = false
+miniBtn.Visible = false
+miniBtn.Parent = gui
+
+local miniCorner = Instance.new("UICorner")
+miniCorner.CornerRadius = UDim.new(0, 10)
+miniCorner.Parent = miniBtn
+
+local miniStroke = Instance.new("UIStroke")
+miniStroke.Color = Color3.fromRGB(40, 40, 46)
+miniStroke.Thickness = 1
+miniStroke.Parent = miniBtn
+
+-- === ПЕРЕТАСКИВАНИЕ (hit-test) ===
+local function pointHitsChildButton(frame, pos)
+    for _, d in ipairs(frame:GetDescendants()) do
+        if d:IsA("GuiButton") and d.Visible and d.Active then
+            local ap = d.AbsolutePosition
+            local as = d.AbsoluteSize
+            if pos.X >= ap.X and pos.X < ap.X + as.X
+                and pos.Y >= ap.Y and pos.Y < ap.Y + as.Y then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function makeDraggable(frame)
+    local dragging, dragStart, startPos
+    local moved = false
+
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1
+            and input.UserInputType ~= Enum.UserInputType.Touch then
+            return
+        end
+        if pointHitsChildButton(frame, input.Position) then return end
+
+        dragging = true
+        moved = false
+        dragStart = input.Position
+        startPos = frame.Position
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if not dragging then return end
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch then
+            local delta = input.Position - dragStart
+            if delta.Magnitude > 3 then moved = true end
+            frame.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+
+    return function() return moved end
+end
+
+local mainWasMoved = makeDraggable(main)
+local miniWasMoved = makeDraggable(miniBtn)
+
+-- === ВИЗУАЛ ===
+local function setSpeedVisual(on)
+    if on then
+        toggleBtn.Text = "ON"
+        toggleBtn.TextColor3 = Color3.fromRGB(120, 220, 160)
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(22, 40, 30)
+        toggleStroke.Color = Color3.fromRGB(60, 140, 95)
+    else
+        toggleBtn.Text = "OFF"
+        toggleBtn.TextColor3 = Color3.fromRGB(200, 200, 210)
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(26, 26, 30)
+        toggleStroke.Color = Color3.fromRGB(44, 44, 50)
+    end
+end
+
+local function setBypassVisual(on)
+    if on then
+        bypassBtn.Text = "BYPASS AC · ON"
+        bypassBtn.TextColor3 = Color3.fromRGB(240, 180, 110)
+        bypassBtn.BackgroundColor3 = Color3.fromRGB(44, 34, 18)
+        bypassStroke.Color = Color3.fromRGB(160, 110, 50)
+    else
+        bypassBtn.Text = "BYPASS AC"
+        bypassBtn.TextColor3 = Color3.fromRGB(200, 200, 210)
+        bypassBtn.BackgroundColor3 = Color3.fromRGB(26, 26, 30)
+        bypassStroke.Color = Color3.fromRGB(44, 44, 50)
+    end
+end
+
+-- === BYPASS ===
+local function activateBypass()
+    local char = lp.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+
+    savedState = {}
+    savedState.hum = hum
+
+    local animate = char:FindFirstChild("Animate")
+    if animate then
+        savedState.animate = animate
+        savedState.animateDisabled = animate.Disabled
+        pcall(function() animate.Disabled = true end)
+    end
+
+    local animator = hum:FindFirstChildOfClass("Animator")
+    if animator then
+        savedState.animator = animator
+        for _, t in ipairs(animator:GetPlayingAnimationTracks()) do
+            pcall(function() t:Stop(0) end)
+        end
+        savedState.trackConn = animator.AnimationPlayed:Connect(function(track)
+            pcall(function() track:Stop(0) end)
+            pcall(function() task.defer(function() track:Destroy() end) end)
+        end)
+    end
+
+    savedState.hiddenAnimations = {}
+    for _, obj in ipairs(char:GetDescendants()) do
+        if obj:IsA("Animation") then
+            table.insert(savedState.hiddenAnimations, {obj = obj, parent = obj.Parent})
+            obj.Parent = nil
+        end
+    end
+end
+
+local function deactivateBypass()
+    if savedState.trackConn then
+        pcall(function() savedState.trackConn:Disconnect() end)
+    end
+    if savedState.animate and savedState.animate.Parent then
+        pcall(function() savedState.animate.Disabled = savedState.animateDisabled or false end)
+    end
+    for _, entry in ipairs(savedState.hiddenAnimations or {}) do
+        pcall(function()
+            if entry.parent and entry.parent.Parent then
+                entry.obj.Parent = entry.parent
+            end
+        end)
+    end
+    savedState = {}
+end
+
+-- === ОБЩЕЕ ОТКЛЮЧЕНИЕ ===
+local function disableAll()
+    if enabled then
+        enabled = false
+        setSpeedVisual(false)
+    end
+    if bypassActive then
+        bypassActive = false
+        pcall(deactivateBypass)
+        setBypassVisual(false)
+    end
+end
+
+-- === ОБРАБОТЧИКИ ===
+toggleBtn.MouseButton1Click:Connect(function()
+    enabled = not enabled
+    setSpeedVisual(enabled)
+end)
+
+bypassBtn.MouseButton1Click:Connect(function()
+    bypassActive = not bypassActive
+    if bypassActive then
+        activateBypass()
+    else
+        deactivateBypass()
+    end
+    setBypassVisual(bypassActive)
+end)
+
+inputBox:GetPropertyChangedSignal("Text"):Connect(function()
+    local v = tonumber(inputBox.Text)
+    if v and v > 0 and v <= BONUS_CAP then
+        targetSpeed = v
+    end
+end)
+
+-- === MINIMIZE / RESTORE ===
+minBtnWin.MouseButton1Click:Connect(function()
+    if not mainWasMoved() then
+        miniBtn.Position = main.Position
+        main.Visible = false
+        miniBtn.Visible = true
+    end
+end)
+
+miniBtn.MouseButton1Click:Connect(function()
+    if not miniWasMoved() then
+        main.Position = miniBtn.Position
+        miniBtn.Visible = false
+        main.Visible = true
+    end
+end)
+
+-- === CFrame mini-teleport stepper ===
+local FIXED_STEP = 1 / 180
+local accum = 0
+
+local speedConn = RunService.RenderStepped:Connect(function(dt)
+    if not enabled then
+        accum = 0
+        return
+    end
+
+    local char = lp.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum then return end
+
+    local dir = hum.MoveDirection
+    if dir.Magnitude < 0.01 then
+        accum = 0
+        return
+    end
+
+    local bonus = targetSpeed - BASE_SPEED
+    if bonus <= 0 then return end
+
+    -- ограничиваем накопленный dt, чтобы не было рывка при просадке FPS
+    accum = math.min(accum + dt, 0.05)
+
+    local unit = dir.Unit
+    while accum >= FIXED_STEP do
+        accum = accum - FIXED_STEP
+        hrp.CFrame = hrp.CFrame + unit * (bonus * FIXED_STEP)
+    end
+end)
+
+-- === СМЕРТЬ → ВЫКЛЮЧАЕМ ВСЁ ===
+local charAddedConn, charDiedConn
+
+local function hookCharacter(char)
+    if charDiedConn then
+        pcall(function() charDiedConn:Disconnect() end)
+        charDiedConn = nil
+    end
+    local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 5)
+    if hum then
+        charDiedConn = hum.Died:Connect(function()
+            disableAll()
+        end)
+    end
+end
+
+if lp.Character then
+    task.spawn(hookCharacter, lp.Character)
+end
+
+charAddedConn = lp.CharacterAdded:Connect(function(char)
+    if bypassActive then
+        bypassActive = false
+        pcall(deactivateBypass)
+        setBypassVisual(false)
+    end
+    task.spawn(hookCharacter, char)
+end)
+
+-- === ПОЛНАЯ ВЫГРУЗКА ===
+local function fullUnload()
+    disableAll()
+    if speedConn then pcall(function() speedConn:Disconnect() end) end
+    if charAddedConn then pcall(function() charAddedConn:Disconnect() end) end
+    if charDiedConn then pcall(function() charDiedConn:Disconnect() end) end
+    if gui and gui.Parent then gui:Destroy() end
+    if genv.__SpeedGuiHandle and genv.__SpeedGuiHandle.gui == gui then
+        genv.__SpeedGuiHandle = nil
+    end
+end
+
+closeBtnWin.MouseButton1Click:Connect(fullUnload)
+
+-- === ХЭНДЛ ===
+genv.__SpeedGuiHandle = {
+    gui = gui,
+    unload = fullUnload,
+}
